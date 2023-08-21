@@ -39,46 +39,31 @@ namespace Neoflix.Services
         public async Task<Dictionary<string, object>[]> AllAsync(string sort = "title",
       Ordering order = Ordering.Asc, int limit = 6, int skip = 0, string userId = null)
         {
-            try
+            using var session = _driver.AsyncSession();
+            await _driver.VerifyConnectivityAsync();
+            await _driver.VerifyAuthenticationAsync(AuthTokens.Basic("neo4j", "invoice-chit-thumbs"));
+
+            return await session.ExecuteReadAsync(async tx =>
             {
-                // TODO: Open an Session
-                using var session = _driver.AsyncSession();
-                await _driver.VerifyConnectivityAsync();
-                await _driver.VerifyAuthenticationAsync(AuthTokens.Basic("neo4j", "invoice-chit-thumbs"));
+                var favorites = await GetUserFavoritesAsync(tx, userId);
 
-                return await session.ExecuteReadAsync(async tx =>
-                {
-                    try
-                    {
-                        var favorites = await GetUserFavoritesAsync(tx, userId);
+                var cursor = await tx.RunAsync(@$"
+                                        MATCH (m:Movie)
+                                        WHERE m.{sort} IS NOT NULL
+                                        RETURN m {{
+                                            .* ,favorite: m.tmdbId IN $favorites
+                                        }} AS movie
+                                        ORDER BY m.{sort} {order.ToString("G").ToUpper()}
+                                        SKIP $skip
+                                        LIMIT $limit", new { skip, limit, favorites });
 
-                        var cursor = await tx.RunAsync(@$"
-    MATCH (m:Movie)
-    WHERE m.{sort} IS NOT NULL
-    RETURN m {{
-        .* ,favorite: m.tmdbId IN $favorites
-    }} AS movie
-    ORDER BY m.{sort} {order.ToString("G").ToUpper()}
-    SKIP $skip
-    LIMIT $limit", new { skip, limit, favorites });
+                var records = await cursor.ToListAsync();
+                var movies = records
+                        .Select(x => x["movie"].As<Dictionary<string, object>>())
+                        .ToArray();
 
-                        var records = await cursor.ToListAsync();
-                        var movies = records
-                            .Select(x => x["movie"].As<Dictionary<string, object>>())
-                            .ToArray();
-
-                        return movies;
-                    }
-                    catch (Exception ex)
-                    {
-                        throw;
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                throw;
-            }
+                return movies;
+            });
         }
 
         // end::all[]
@@ -232,25 +217,6 @@ namespace Neoflix.Services
         /// The task result contains a list of tmdbIds.
         /// </returns>
         // tag::getUserFavorites[]
-        //private async Task<string[]> GetUserFavoritesAsync(IAsyncQueryRunner transaction, string userId)
-        //{
-        //    try
-        //    {
-        //        if (userId == null)
-        //            return new string[] { };
-
-        //        var query = "Match (u:User {userId: $userId})-[:HAS_FAVORITE]->(m) return m.tmdbId as id";
-        //        var cursor = await transaction.RunAsync(query, new { userId });
-        //        var records = await cursor.ToListAsync();
-
-        //        return records.Select(x => x["id"].As<string>()).ToArray();
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        throw;
-        //    }
-        //}
-
         private async Task<string[]> GetUserFavoritesAsync(IAsyncQueryRunner transaction, string userId)
         {
             if (userId == null)
