@@ -78,10 +78,10 @@ namespace Neoflix.Services
             return await session.ExecuteWriteAsync(async (tx) =>
             {
                 var query = @"Match (u:User) where u.userId=$userId
-                              Match   (m:Movie) where m.tmdbId=$movieId
+                              Match (m:Movie) where m.tmdbId=$movieId
                               Merge (u)-[r:HAS_FAVORITE]->(m)
-                              set u.createdAt=datetime()
-                              return m{.* , favorite: true} as movie
+                              set u.createdAt=datetime(),m.favorite= true
+                              return m {.*} as movie
                             ";
                 var cursor = await tx.RunAsync(query, new { userId, movieId });
 
@@ -116,8 +116,9 @@ namespace Neoflix.Services
                 try
                 {
                     var query = @"Match (u:User {userId:$userId})-[r:HAS_FAVORITE]->(m:Movie {tmdbId:$movieId})
+                            set m.favorite= false
                             Delete r
-                            return m {.* , favorite: false} as movie
+                            return m {.*} as movie
                             ";
                     var cursor = await tx.RunAsync(query, new { userId, movieId });
 
